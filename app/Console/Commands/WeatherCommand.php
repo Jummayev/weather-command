@@ -3,7 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Services\WeatherService;
+use Exception;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Http;
 
 class WeatherCommand extends Command
 {
@@ -12,7 +14,10 @@ class WeatherCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'weather {provider} {--p|provider} {city} {--c|city}  {--ch|channel}';
+    protected $signature = 'weather
+        {provider : weather provider}
+        {city : city name}
+        {--telegram= : send weather to telegram}';
 
     /**
      * The console command description.
@@ -25,17 +30,41 @@ class WeatherCommand extends Command
      * Execute the console command.
      * @throws \Exception
      */
-    public function handle(WeatherService $weatherService)
+    public function handle(WeatherService $weatherService): void
     {
         $provider = $this->argument('provider');
         $city = $this->argument('city');
-        $channel = $this->option('channel');
-
-        if ($provider && $city) {
-            $weather = $weatherService->getWeatherByCity($provider, $city);
-            dd($weather);
-            $this->info($weather);
+        $telegram = $this->option('telegram');
+        if (!empty($telegram)) {
+            if (!filter_var($telegram, FILTER_VALIDATE_INT)) {
+                $this->error('Telegram id must be an integer');
+                return;
+            }
         }
 
+        try {
+            $weather = $weatherService->getWeatherByCity($provider, $city);
+        } catch (Exception $exception) {
+            $this->error($exception->getMessage());
+            return;
+        }
+        if ($telegram) {
+            $this->sendTelegram($weather, $telegram);
+        } else {
+            $this->info($weather);
+        }
+    }
+
+    public function sendTelegram($message, $chatId): void
+    {
+        $response = Http::post('https://api.telegram.org/bot' . config("system.telegram.token") . '/sendMessage', [
+            'chat_id' => $chatId,
+            'text' => $message,
+        ]);
+        if ($response->successful()) {
+            $this->info('Telegram message sent successfully');
+        } else {
+            $this->error('Telegram message not sent');
+        }
     }
 }
